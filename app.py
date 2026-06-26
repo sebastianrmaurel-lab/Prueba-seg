@@ -392,6 +392,13 @@ def api_crear():
     if not c.rut or not c.nombre:
         return jsonify({'error':'RUT y nombre requeridos'}), 400
     db.session.add(c); db.session.commit()
+    # Si tiene num_seguimiento, registrar en numeros_reservados si no existe
+    if c.num_seguimiento:
+        existe = NumeroReservado.query.filter_by(numero=c.num_seguimiento).first()
+        if not existe:
+            n = NumeroReservado(numero=c.num_seguimiento)
+            db.session.add(n)
+            db.session.commit()
     reg_hist(c.id, 'Registro creado', f'{c.nombre} | {c.rut}')
     db.session.commit()
     return jsonify(c.to_dict()), 201
