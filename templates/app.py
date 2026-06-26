@@ -28,6 +28,20 @@ class Responsable(db.Model):
     def to_dict(self):
         return {'id': self.id, 'nombre': self.nombre, 'cargo': self.cargo or ''}
 
+class NumeroReservado(db.Model):
+    __tablename__ = 'numeros_reservados'
+    id         = db.Column(db.Integer, primary_key=True)
+    numero     = db.Column(db.String(50), nullable=False, unique=True)
+    creado_en  = db.Column(db.DateTime, default=datetime.utcnow)
+    def to_dict(self):
+        contrato = Contrato.query.filter_by(num_seguimiento=self.numero).first()
+        return {
+            'id': self.id,
+            'numero': self.numero,
+            'creado_en': self.creado_en.strftime('%d/%m/%Y %H:%M') if self.creado_en else '',
+            'contrato': contrato.to_dict() if contrato else None
+        }
+
 class Contrato(db.Model):
     __tablename__ = 'contratos'
     id                = db.Column(db.Integer, primary_key=True)
@@ -496,6 +510,32 @@ def api_del_resp(id):
     r = Responsable.query.get_or_404(id); db.session.delete(r); db.session.commit()
     return jsonify({'ok':True})
 
+# ── Números Reservados ────────────────────────────────────────────
+@app.route('/api/numeros', methods=['GET'])
+def api_numeros():
+    nums = NumeroReservado.query.order_by(NumeroReservado.numero).all()
+    return jsonify([n.to_dict() for n in nums])
+
+@app.route('/api/numeros', methods=['POST'])
+def api_tomar_numero():
+    d = request.json
+    numero = str(d.get('numero','')).strip()
+    if not numero:
+        return jsonify({'error':'Número requerido'}), 400
+    if NumeroReservado.query.filter_by(numero=numero).first():
+        return jsonify({'error':'Número ya reservado'}), 409
+    n = NumeroReservado(numero=numero)
+    db.session.add(n); db.session.commit()
+    return jsonify(n.to_dict()), 201
+
+@app.route('/api/numeros/<int:id>', methods=['DELETE'])
+def api_del_numero(id):
+    err = require_admin()
+    if err: return err
+    n = NumeroReservado.query.get_or_404(id)
+    db.session.delete(n); db.session.commit()
+    return jsonify({'ok':True})
+
 # ── Auto-migración ───────────────────────────────────────────────
 with app.app_context():
     db.create_all()
@@ -507,6 +547,7 @@ with app.app_context():
         "ALTER TABLE contratos ADD COLUMN IF NOT EXISTS num_seguimiento VARCHAR(200)",
         "ALTER TABLE contratos ADD COLUMN IF NOT EXISTS devuelto BOOLEAN DEFAULT FALSE",
         "ALTER TABLE contratos ADD COLUMN IF NOT EXISTS ocultar_estado BOOLEAN DEFAULT FALSE",
+        "CREATE TABLE IF NOT EXISTS numeros_reservados (id SERIAL PRIMARY KEY, numero VARCHAR(50) UNIQUE NOT NULL, creado_en TIMESTAMP DEFAULT NOW())",
     ]
     for sql in migrations:
         try:
