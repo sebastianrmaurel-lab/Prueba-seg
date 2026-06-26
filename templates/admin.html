@@ -240,6 +240,7 @@ tbody tr:hover td{background:var(--s2)}
     <div class="sb-sec">Panel</div>
     <button class="ni" id="nav-tiemporeal"   onclick="sv('tiemporeal')"><span class="ic">🟢</span> Tiempo Real</button>
     <button class="ni" id="nav-historico"    onclick="sv('historico')"><span class="ic">🕰</span> Histórico</button>
+    <button class="ni" id="nav-numeros"      onclick="sv('numeros')"><span class="ic">🔢</span> Números</button>
     <button class="ni" id="nav-calendario"   onclick="sv('calendario')"><span class="ic">🗓</span> Calendario</button>
     <button class="ni" id="nav-contratos"    onclick="sv('contratos')"><span class="ic">📋</span> Lista</button>
     <button class="ni" id="nav-responsables" onclick="sv('responsables')"><span class="ic">👤</span> Responsables</button>
@@ -498,7 +499,7 @@ function clearAllF(){fEstado='';fMat='';fVis='';fObs='';fResp='';fRet='';fDev=''
 function clearFilters(){clearAllF();renderContratos();}
 
 function loadView(){
-  const T={tiemporeal:'Tiempo Real',historico:'Histórico',calendario:'Calendario',contratos:'Lista',responsables:'Responsables',materias:'Materias',ruts:'Historial por RUT'};
+  const T={tiemporeal:'Tiempo Real',historico:'Histórico',numeros:'Números',calendario:'Calendario',contratos:'Lista',responsables:'Responsables',materias:'Materias',ruts:'Historial por RUT'};
   document.getElementById('view-title').textContent=T[view]||'Panel';
   document.querySelectorAll('.ni').forEach(b=>b.classList.remove('active'));
   document.getElementById('nav-'+view)?.classList.add('active');
@@ -530,6 +531,7 @@ function loadView(){
   if(view==='dashboard')     renderDashboard();
   else if(view==='tiemporeal') renderTiempoReal();
   else if(view==='historico')  renderHistorico();
+  else if(view==='numeros')    renderNumeros();
   else if(view==='calendario') renderCalendario();
   else if(view==='contratos') renderContratos();
   else if(view==='responsables') renderResponsables();
@@ -664,6 +666,66 @@ async function renderDashboard(){
     type:'bar',data:{labels:MESES,datasets:[{data:cd.by_month_ingreso,
       backgroundColor:cd.by_month_ingreso.map((_,i)=>i===nowM?'rgba(21,128,61,1)':'rgba(21,128,61,.4)'),borderRadius:4,borderWidth:0}]},
     options:barOpts(cd.by_month_ingreso)});
+}
+
+/* ── NÚMEROS ── */
+async function renderNumeros(){
+  const el=document.getElementById('vc');
+  el.innerHTML='<div class="spinner"></div>';
+  let nums;
+  try{ nums=await fetch('/api/numeros').then(r=>r.json()); }
+  catch(e){ el.innerHTML='<div class="empty">❌ Error cargando.</div>'; return; }
+
+  el.innerHTML=`
+  <div class="panel" style="margin-bottom:1rem">
+    <div class="ph"><span class="ph-title">🔢 Números reservados</span></div>
+    <div style="padding:.875rem;display:flex;gap:8px;align-items:center;border-bottom:1px solid var(--border)">
+      <input id="inp-num" type="text" placeholder="Ej: 2026-001" style="height:36px;border:1px solid var(--border);border-radius:8px;padding:0 12px;font-size:13px;flex:1;max-width:220px;background:var(--bg);color:var(--text)" onkeydown="if(event.key==='Enter')tomarNumero()">
+      <button class="btn btn-primary btn-sm" onclick="tomarNumero()">Tomar número</button>
+      <span id="num-msg" style="font-size:12px;color:var(--red);display:none"></span>
+    </div>
+    <div id="num-lista">
+    ${!nums.length?'<div class="empty" style="padding:1.5rem">No hay números reservados aún.</div>':`
+    <div class="tw"><table>
+      <thead><tr>
+        <th>Número</th><th>Nombre</th><th>RUT</th><th>Materia</th><th>Desde</th><th>Hasta</th><th>Estado</th><th></th>
+      </tr></thead>
+      <tbody>
+      ${nums.map(n=>`<tr>
+        <td><strong style="font-size:14px;color:var(--navy2)">${n.numero}</strong><div style="font-size:10px;color:var(--muted)">${n.creado_en}</div></td>
+        <td>${n.contrato?`<strong style="cursor:pointer;color:var(--navy2)" onclick="openModal(${n.contrato.id})">${n.contrato.nombre}</strong>`:'<span style="color:var(--soft);font-size:12px">Sin contrato aún</span>'}</td>
+        <td style="font-family:monospace;font-size:11px">${n.contrato?n.contrato.rut:'—'}</td>
+        <td style="font-size:11px">${n.contrato?n.contrato.materia||'—':'—'}</td>
+        <td style="font-size:11px">${n.contrato?fmtD(n.contrato.fecha_inicio):'—'}</td>
+        <td style="font-size:11px">${n.contrato?fmtD(n.contrato.fecha_fin):'—'}</td>
+        <td>${n.contrato?badgeFull(n.contrato):'<span class="badge" style="background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb">⏳ Pendiente</span>'}</td>
+        <td><button class="act-btn" style="color:var(--red)" onclick="eliminarNumero(${n.id})" title="Eliminar">🗑</button></td>
+      </tr>`).join('')}
+      </tbody>
+    </table></div>`}
+    </div>
+  </div>`;
+}
+
+async function tomarNumero(){
+  const inp=document.getElementById('inp-num');
+  const msg=document.getElementById('num-msg');
+  const numero=inp.value.trim();
+  if(!numero){ msg.textContent='Ingresa un número'; msg.style.display='inline'; return; }
+  msg.style.display='none';
+  try{
+    const res=await fetch('/api/numeros',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({numero})});
+    if(res.status===409){ msg.textContent='Ese número ya está reservado'; msg.style.display='inline'; return; }
+    if(!res.ok){ msg.textContent='Error al reservar'; msg.style.display='inline'; return; }
+    inp.value='';
+    renderNumeros();
+  }catch(e){ msg.textContent='Error de conexión'; msg.style.display='inline'; }
+}
+
+async function eliminarNumero(id){
+  if(!confirm('¿Eliminar este número reservado?')) return;
+  await fetch('/api/numeros/'+id,{method:'DELETE'});
+  renderNumeros();
 }
 
 /* ── CALENDARIO ── */
@@ -2156,3 +2218,4 @@ function renderCards(pageData){
 </script>
 </body>
 </html>
+
